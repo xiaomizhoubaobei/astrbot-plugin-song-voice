@@ -1,0 +1,186 @@
+{
+  "点歌指令": {
+    "type": "string",
+    "description": "触发点歌的指令名",
+    "default": "点歌"
+  },
+  "指令别名": {
+    "type": "list",
+    "description": "额外的触发词（每行一个）",
+    "default": [
+      "听歌",
+      "music"
+    ]
+  },
+  "API 地址": {
+    "type": "string",
+    "description": "GD 音乐台 API 地址",
+    "default": "https://music-api.gdstudio.xyz/api.php"
+  },
+  "音源": {
+    "type": "string",
+    "description": "音乐源，部分源可能失效",
+    "options": [
+      "netease",
+      "tencent",
+      "kugou",
+      "kuwo",
+      "migu",
+      "ximalaya",
+      "apple",
+      "spotify",
+      "ytmusic",
+      "tidal",
+      "qobuz",
+      "joox",
+      "deezer"
+    ],
+    "default": "netease"
+  },
+  "音质码率": {
+    "type": "string",
+    "description": "740/999 为无损，高码率可能返回 wma（会自动转码）",
+    "options": [
+      "128",
+      "192",
+      "320",
+      "740",
+      "999"
+    ],
+    "default": "999"
+  },
+  "歌单数量": {
+    "type": "int",
+    "description": "每次搜索返回的歌曲数（1-50）",
+    "default": 20
+  },
+  "下一页指令": {
+    "type": "string",
+    "default": "下一页"
+  },
+  "上一页指令": {
+    "type": "string",
+    "default": "上一页"
+  },
+  "退出指令": {
+    "type": "list",
+    "description": "退出选择（每行一个）",
+    "default": [
+      "0",
+      "不听了"
+    ]
+  },
+  "展示退出提示": {
+    "type": "bool",
+    "default": true
+  },
+  "允许群友代选": {
+    "type": "bool",
+    "description": "开启后群内任何人都可以选歌",
+    "default": false
+  },
+  "最长时长(分钟)": {
+    "type": "int",
+    "description": "0 表示不限制",
+    "default": 30
+  },
+  "等待序号超时(秒)": {
+    "type": "int",
+    "default": 45
+  },
+  "强制转码": {
+    "type": "bool",
+    "description": "下载后经 ffmpeg 转码再发送",
+    "default": false
+  },
+  "转码格式": {
+    "type": "string",
+    "description": "silk 在纯 Python 环境会回退 wav",
+    "options": [
+      "aac",
+      "wav",
+      "silk"
+    ],
+    "default": "aac"
+  },
+  "ffmpeg 路径": {
+    "type": "string",
+    "default": "ffmpeg"
+  },
+  "ffmpeg 超时(毫秒)": {
+    "type": "int",
+    "default": 20000
+  },
+  "启动时检测 ffmpeg": {
+    "type": "bool",
+    "default": true
+  },
+  "语音保存目录": {
+    "type": "string",
+    "default": "record"
+  },
+  "请求超时(毫秒)": {
+    "type": "int",
+    "default": 15000
+  },
+  "请求重试次数": {
+    "type": "int",
+    "default": 1
+  },
+  "撤回生成提示": {
+    "type": "bool",
+    "default": true
+  },
+  "撤回歌单": {
+    "type": "bool",
+    "default": true
+  },
+  "提示撤回秒数": {
+    "type": "int",
+    "default": 10
+  },
+  "歌单撤回秒数": {
+    "type": "int",
+    "default": 60
+  },
+  "仅成功后撤回": {
+    "type": "bool",
+    "default": true
+  },
+  "发送失败保留歌单": {
+    "type": "bool",
+    "default": true
+  },
+  "调试日志": {
+    "type": "bool",
+    "default": false
+  },
+  "文案-生成中": {
+    "type": "string",
+    "default": "生成语音中…"
+  },
+  "文案-超时": {
+    "type": "string",
+    "default": "输入超时，已取消点歌。"
+  },
+  "文案-退出": {
+    "type": "string",
+    "default": "已退出歌曲选择。"
+  },
+  "文案-序号错误": {
+    "type": "string",
+    "default": "序号输入错误，已退出歌曲选择。"
+  },
+  "文案-时长超限": {
+    "type": "string",
+    "default": "歌曲时长超出限制，已取消发送。"
+  },
+  "文案-获取失败": {
+    "type": "string",
+    "default": "获取歌曲失败，请稍后再试。"
+  },
+  "文案-发送失败": {
+    "type": "string",
+    "default": "获取/发送失败，请稍后再试或降低码率。"
+  }
+}
