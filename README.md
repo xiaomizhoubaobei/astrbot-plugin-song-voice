@@ -53,7 +53,28 @@ core/api.py          GD 音乐台 API 请求
 core/models.py       搜索结果归一化
 core/audio.py        ffmpeg 转码
 core/session.py      会话状态、歌单渲染
+install_gpg_keys.sh  可选：GPG 签名环境一键安装
 ```
+
+## GPG 签名环境（可选）
+
+仓库根目录附带 `install_gpg_keys.sh`，用于在构建/发布环境里一条命令装好「GPG 密钥导入 + 信任 + git 签名接管」全链路，
+让提交签名落在你自己的密钥指纹上，而不是平台章。
+
+```bash
+export GPG_KEY="<私钥解锁短语>"          # 必填，未注入脚本直接退出
+export GPG_API="https://..."            # 可选，不填走脚本内置的默认分发 API
+bash install_gpg_keys.sh
+```
+
+脚本特性：
+
+- 幂等：重复执行结果一致，缺 `gnupg` / `curl` / `jq` 时自动安装
+- 无 TTY 友好：全程 `--pinentry-mode loopback`，并生成 `/tmp/gpg-wrapper.sh` 作为 `gpg.program`
+- 签名接管：有工作树时同时写 local + global，避免旧签名器残留导致不生效
+- 自检闭环：真实跑一次 `git commit -S` 并验签，指纹不符就报错退出（不假装成功）
+
+> 注意：`GPG_KEY` 只从环境变量读取，请勿写入脚本或提交到仓库。
 
 ## 已知限制
 
