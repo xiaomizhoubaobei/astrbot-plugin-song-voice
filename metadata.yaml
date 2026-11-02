@@ -3,5 +3,5 @@ display_name: 点歌语音
 desc: 音乐聚合点播语音插件：搜索歌曲、翻页选择、序号点播，可选 ffmpeg 转码发送语音。数据来源：GD音乐台 API。
 version: v1.0.0
 author: qixiaoxin
-repo: https://cnb.cool/XMZZUZHI/Astrbot/astrbot-plugin-song-voice
+repo: https://github.com/xiaomizhoubaobei/astrbot-plugin-song-voice
 astrbot_version: ">=4.0.0"
