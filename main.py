@@ -40,7 +40,9 @@ class SongVoicePlugin(Star):
     def __init__(self, context: Context, config: Any = None):
         super().__init__(context)
         data = config if isinstance(config, dict) else getattr(config, "__dict__", None)
-        self.config_obj = PluginConfig.from_dict(data if isinstance(data, dict) else None)
+        self.config_obj = PluginConfig.from_dict(
+            data if isinstance(data, dict) else None
+        )
         self.api = MusicApi(self.config_obj, logger)
         self.pending = PendingStore()
 
@@ -66,7 +68,9 @@ class SongVoicePlugin(Star):
 
     # ---------- 核心流程 ----------
 
-    async def _do_search(self, event: AstrMessageEvent, key: Any, keyword: str, page: int):
+    async def _do_search(
+        self, event: AstrMessageEvent, key: Any, keyword: str, page: int
+    ):
         """搜索并渲染歌单，返回 (文本, 是否成功)。"""
         try:
             items = await self.api.search(keyword, page)
@@ -178,7 +182,7 @@ class SongVoicePlugin(Star):
 
         # 1) 新点歌
         if is_command:
-            keyword = raw[len(head):].strip()
+            keyword = raw[len(head) :].strip()
             if not keyword:
                 yield event.plain_result(cfg.empty_keyword)
                 event.stop_event()

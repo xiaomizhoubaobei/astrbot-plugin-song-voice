@@ -56,7 +56,9 @@ class SearchItem:
             raw.get("artists"),
         )
         if isinstance(artist, list):
-            artist = " / ".join(str(a.get("name", a)) if isinstance(a, dict) else str(a) for a in artist)
+            artist = " / ".join(
+                str(a.get("name", a)) if isinstance(a, dict) else str(a) for a in artist
+            )
         return cls(
             song_id=str(song_id).strip() if song_id is not None else None,
             name=str(name) if name else "未知歌曲",

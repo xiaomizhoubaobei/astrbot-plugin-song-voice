@@ -52,7 +52,9 @@ def is_exit_input(text: str, cfg: PluginConfig) -> bool:
     return bool(value) and value in [c.strip() for c in cfg.exit_cmds if c.strip()]
 
 
-def render_menu(cfg: PluginConfig, keyword: str, page: int, items: List[SearchItem]) -> str:
+def render_menu(
+    cfg: PluginConfig, keyword: str, page: int, items: List[SearchItem]
+) -> str:
     lines = [f"🎵 搜索：{keyword}（第 {page} 页）", ""]
     for idx, item in enumerate(items[: cfg.search_count], start=1):
         lines.append(item.menu_line(idx))

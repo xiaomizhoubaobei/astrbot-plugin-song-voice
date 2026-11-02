@@ -1,0 +1,49 @@
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+  - id: end-of-file-fixer
+  - id: trailing-whitespace
+  - id: check-yaml
+  - id: check-json
+  - id: check-toml
+  - id: check-added-large-files
+    args: ['--maxkb=10000']
+  - id: detect-private-key
+  - id: check-case-conflict
+  - id: check-merge-conflict
+  - id: check-symlinks
+  - id: mixed-line-ending
+    args: ['--fix=lf']
+- repo: https://github.com/psf/black-pre-commit-mirror
+  rev: 26.10.1
+  hooks:
+  - id: black
+    # 不绑定 language_version：仅要求本机具备任意受支持的 Python，跨版本可跑通
+    args: ['--target-version', 'py312']
+- repo: https://github.com/pycqa/flake8
+  rev: 7.4.1
+  hooks:
+  - id: flake8
+    args: ['--max-line-length=100', '--extend-ignore=E203,W503']
+# isort 10.x 要求 Python >= 3.11，CI 默认解释器是 3.10，故钉在 9.x（与 10.x 输出一致）
+- repo: https://github.com/pycqa/isort
+  rev: 9.0.2
+  hooks:
+  - id: isort
+    args: ['--profile', 'black']
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: v2.4.0
+  hooks:
+  - id: mypy
+    additional_dependencies: [types-aiofiles]
+    args: ['--ignore-missing-imports']
+- repo: https://github.com/pycqa/pydocstyle
+  rev: 6.3.0
+  hooks:
+  - id: pydocstyle
+    # AstrBot 插件目录按平铺 .py 分发，本就没有包级文档；D415 与中文句子里的「。」冲突。
+    # 故放开缺失类（D1xx）与 D415，仅保留声明写法类规则。
+    args:
+      - '--convention=google'
+      - '--add-ignore=D101,D102,D103,D104,D105,D107,D415'

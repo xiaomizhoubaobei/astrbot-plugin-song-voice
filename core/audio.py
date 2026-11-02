@@ -21,7 +21,9 @@ def ffmpeg_available(binary: str) -> bool:
     return shutil.which(binary) is not None
 
 
-async def _run_ffmpeg(binary: str, args: list[str], data: bytes, timeout_ms: int) -> bytes:
+async def _run_ffmpeg(
+    binary: str, args: list[str], data: bytes, timeout_ms: int
+) -> bytes:
     proc = await asyncio.create_subprocess_exec(
         binary,
         *args,
@@ -37,7 +39,9 @@ async def _run_ffmpeg(binary: str, args: list[str], data: bytes, timeout_ms: int
         proc.kill()
         raise RuntimeError("ffmpeg 超时")
     if proc.returncode != 0:
-        raise RuntimeError(stderr.decode("utf-8", "ignore").strip() or f"ffmpeg exit {proc.returncode}")
+        raise RuntimeError(
+            stderr.decode("utf-8", "ignore").strip() or f"ffmpeg exit {proc.returncode}"
+        )
     if not stdout:
         raise RuntimeError("ffmpeg 输出为空")
     return stdout
@@ -46,25 +50,46 @@ async def _run_ffmpeg(binary: str, args: list[str], data: bytes, timeout_ms: int
 async def to_wav(binary: str, data: bytes, timeout_ms: int) -> bytes:
     """输出 24kHz / 单声道 / s16 wav，兼容大多数语音接口。"""
     args = [
-        "-hide_banner", "-loglevel", "error",
-        "-i", "pipe:0",
-        "-ac", "1", "-ar", "24000",
-        "-f", "wav", "pipe:1",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        "pipe:0",
+        "-ac",
+        "1",
+        "-ar",
+        "24000",
+        "-f",
+        "wav",
+        "pipe:1",
     ]
     return await _run_ffmpeg(binary, args, data, timeout_ms)
 
 
-async def to_aac(binary: str, data: bytes, timeout_ms: int, bitrate: str = "128k") -> bytes:
+async def to_aac(
+    binary: str, data: bytes, timeout_ms: int, bitrate: str = "128k"
+) -> bytes:
     args = [
-        "-hide_banner", "-loglevel", "error",
-        "-i", "pipe:0",
-        "-vn", "-c:a", "aac", "-b:a", bitrate,
-        "-f", "adts", "pipe:1",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        "pipe:0",
+        "-vn",
+        "-c:a",
+        "aac",
+        "-b:a",
+        bitrate,
+        "-f",
+        "adts",
+        "pipe:1",
     ]
     return await _run_ffmpeg(binary, args, data, timeout_ms)
 
 
-async def transcode(binary: str, data: bytes, fmt: str, timeout_ms: int) -> tuple[bytes, str, str]:
+async def transcode(
+    binary: str, data: bytes, fmt: str, timeout_ms: int
+) -> tuple[bytes, str, str]:
     """返回 (音频字节, 文件名, mime)。silk 无编码器时回退 wav。"""
     fmt = (fmt or "aac").lower()
     if fmt == "aac":

@@ -21,12 +21,13 @@ SOURCE_LABELS = {
     "deezer": "Deezer",
 }
 
+
 # 码率降级顺序：优先请求配置值，失败时逐级下调
 def br_fallback(br: int) -> List[int]:
     ladder = [999, 740, 320, 192, 128]
     if br not in ladder:
         return [128]
-    return ladder[ladder.index(br):]
+    return ladder[ladder.index(br) :]
 
 
 @dataclass
@@ -145,7 +146,9 @@ class PluginConfig:
                         items = [v.strip() for v in value.replace("，", ",").split(",")]
                         setattr(cfg, key, [v for v in items if v])
                     elif isinstance(value, list):
-                        setattr(cfg, key, [str(v).strip() for v in value if str(v).strip()])
+                        setattr(
+                            cfg, key, [str(v).strip() for v in value if str(v).strip()]
+                        )
                 else:
                     setattr(cfg, key, str(value))
             except (TypeError, ValueError):
