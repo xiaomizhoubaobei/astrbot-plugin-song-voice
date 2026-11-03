@@ -30,7 +30,7 @@ jobs:
       # 故收敛为单一运行器 + 单一版本（与 CodeQL.yml 口径一致）。
       matrix:
         os: [ubuntu-latest]
-        python-version: ['3.12']
+        python-version: ['3.13']
     runs-on: ${{ matrix.os }}
     name: DevSkim 扫描在 ${{ matrix.os }} 上使用 Python ${{ matrix.python-version }}
     permissions:

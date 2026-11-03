@@ -3,10 +3,7 @@ name: Coverage
 # 触发时机：main 分支的推送与 PR。
 # 说明：本仓库代码会在 main 推送时由 CNB（.cnb.yml）同步至 GitHub 镜像仓库，
 #       因此 CNB 侧的每次变更最终都会以 push 形式落到这里。
-#       ⚠️ 本仓库当前**没有 tests/ 目录**：测试未收集到用例时，pytest 默认以退出码 5
-#       结束，会把 main 永久标红。故此处用 `--suppress-no-test-exit-code`，让
-#       「还没写测试」表现为绿灯跳过，而不是误报故障；一旦补上 tests/，同一工作流
-#       自动开始统计并上报覆盖率，无需改本文件。
+#       测试矩阵：3.13 / 3.14 / 3.15。
 on:
   push:
     branches:
@@ -33,12 +30,12 @@ jobs:
   coverage:
     name: 单元测试与覆盖率 (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    # 测试矩阵：AstrBot 运行环境的主流解释器版本（3.10 起）。
+    # 测试矩阵：3.13 / 3.14 / 3.15。
     # fail-fast: false —— 某一版本失败不该掩盖其它版本的结论。
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12", "3.13"]
+        python-version: ["3.13", "3.14", "3.15"]
     # ⚠️ 【令牌只在「上报」这一步可见】切勿把 CODECOV_TOKEN 提到 job / workflow 级 env：
     #   本 job 会 `pip install -r requirements.txt` 并执行 **PR 可控的测试代码**，
     #   job 级 env 会让这些不可信代码直接读到 Secret。
@@ -86,9 +83,10 @@ jobs:
         run: |
           # --source 用「包名」计数，coverage 会以包所在目录为基准写出相对路径
           # （如 astrbot_plugin_song_voice/core/api.py），从而正确定位到工作区文件。
-          # 未收集到用例时（本仓库暂无 tests/）不判失败，仍生成一份空覆盖率报告。
-          python -m coverage run --source="${PLUGIN_PKG}" -m pytest tests -q \
-            --suppress-no-test-exit-code
+          # ⚠️ 不要再加 `--suppress-no-test-exit-code`：那是 pytest-cov 的选项，
+          # 本工作流没装 pytest-cov，pytest 会因「unrecognized arguments」直接以
+          # 退出码 4 失败（曾导致本 job 在「还没写测试」时就永久标红）。
+          python -m coverage run --source="${PLUGIN_PKG}" -m pytest tests -q
           python -m coverage report -m
           python -m coverage xml -o coverage.xml
 
@@ -104,10 +102,10 @@ jobs:
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: ./coverage.xml
-          # 覆盖率只跑单一版本（矩阵起始的 3.10）：多版本重复上报同一份源码的
+          # 覆盖率只跑单一版本（矩阵起始的 3.13）：多版本重复上报同一份源码的
           # 覆盖率没有增量信息，只会让 Codecov 侧互相覆盖。
           flags: unittests
-          name: python-3.10
+          name: python-3.13
           fail_ci_if_error: false
           verbose: true
           # CLI 默认下载到检出根目录并长期留存；改用临时目录并在结束后清理
@@ -123,7 +121,7 @@ jobs:
           path: coverage.xml
           if-no-files-found: warn
 
-  # 纯单测矩阵：3.10 / 3.12 / 3.13 逐版本跑一遍 pytest。
+  # 纯单测矩阵：3.13 / 3.14 / 3.15 逐版本跑一遍 pytest。
   # 为什么与 coverage job 分开：覆盖率只需算一次（同一份源码），
   # 而「代码在这些版本上都能跑通」必须逐版本验证。
   tests:
@@ -132,7 +130,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12", "3.13"]
+        python-version: ["3.13", "3.14", "3.15"]
     steps:
       - name: 加固运行器（审计全部出网调用）
         uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
@@ -164,8 +162,8 @@ jobs:
           PYTHONPATH: ${{ runner.temp }}
         run: |
           # 不走 coverage 启动器：这里只关心「能不能跑通」。
-          # 暂无 tests/ 时以退出码 0 跳过，待补齐测试后自动生效。
-          python -m pytest tests -q --suppress-no-test-exit-code
+          # 同上：不加 `--suppress-no-test-exit-code`（非 pytest 内置选项，会以退出码 4 失败）。
+          python -m pytest tests -q
 
   # 汇总门禁：分支保护只认这一个检查项，避免每加一个版本都要改一次保护规则。
   tests-gate:
@@ -180,4 +178,4 @@ jobs:
             echo "❌ 单测矩阵未全部通过：${{ needs.tests.result }}"
             exit 1
           fi
-          echo "✅ 3.10 / 3.12 / 3.13 全部通过"
+          echo "✅ 3.13 / 3.14 / 3.15 全部通过"

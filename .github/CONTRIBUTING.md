@@ -18,6 +18,6 @@ pre-commit run --all-files
 
 ## 代码约定
 
-- 面向 Python 3.10+，不使用 3.11+ 专属语法。
+- 面向 Python 3.13+，不使用高版本专属语法。
 - 发送语音前先判 `ffmpeg` 可用性，不可用时降级为原文件，不要直接抛错。
 - 新增配置项必须同时更新 `_conf_schema.json` 与 `core/config.py` 的默认值。
