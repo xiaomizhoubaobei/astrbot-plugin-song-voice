@@ -1,16 +1,14 @@
 name: 'Release 构建'
 
-# 触发条件：推送到 main 分支时触发或手动触发
+# 触发条件：推送 vX.Y.Z 形式的 tag 时触发，或手动触发
 on:
   push:
-    branches:
-      - main
-    paths:
-      - '**/*.py'
-  workflow_dispatch:  # 允许手动触发（下发给 build 任务的 refs/heads/main 闸门会拒绝非 main 分支）
-    # 手动触发语义：**手动触发即重新发布**。
-    # 与 push 触发的区别只在于「tag 已存在时怎么办」：
-    #   - push 触发：tag 已存在就跳过（每次 .py 变更都会跑本工作流，版本号未变时不得覆盖既有 Release）；
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+  workflow_dispatch:  # 允许手动触发（下发给 build 任务的 refs/tags/v* 闸门会拒绝非 tag 分支）
+    # 手动触发语义：**手动触发即重新发布**，且只在 tag 上发生。
+    # 与 tag 推送触发的区别只在于「tag 已存在时怎么办」：
+    #   - tag 推送：tag 必然已存在（它正是触发源），按 metadata.yaml 的版本号发布；
     #   - 手动触发：无视 tag 是否已存在，一律按当前 metadata.yaml 的版本重新发一次
     #     （action-gh-release 对已存在 Release 是 update 语义，同名资产按名替换）。
     # 故此处不再提供「强制重新发布」开关——手动触发本身就是那个动作。
@@ -29,7 +27,7 @@ permissions:
   actions: read
 
 # ⚠️ 【发布串行化】release 是「先查 tag 是否存在、再建 tag、再发布」的三段动作，
-#   GitHub Actions 无法把「查」与「建」做成一个原子操作。若两次 main 推送同时跑，
+#   GitHub Actions 无法把「查」与「建」做成一个原子操作。若两次发布（tag 推送 / 手动触发）同时跑，
 #   两者都可能先观察到「该版本 tag 尚不存在」，于是各建一次同名 tag → 后到者要么
 #   撞 tag 失败、要么把同一版本发两遍（Release 页面出现重复/覆盖的产物）。
 #   故用 concurrency 把发布**串行化**：同一时刻只允许一个 release 在跑，
@@ -43,9 +41,10 @@ jobs:
   build:
     name: 构建 Release
     runs-on: ubuntu-latest
-    # 手动触发时可指定任意分支，本任务持有 contents: write 会打 tag 并发布；
-    # 因此强制只在 main 上发布，防止把非 main 分支的内容发成正式 Release。
-    if: github.ref == 'refs/heads/main'
+    # 发布源只有 tag：本任务持有 contents: write + id-token: write，会建 tag 并签名发布。
+    # 故显式要求 ref 是 tag 且形如 vX.Y.Z —— 手动触发时 GH 允许选分支，
+    # 不设闸门就会把任意分支的内容发成正式 Release，签名身份也会随之漂移到该分支 ref。
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
       id-token: write  # 为签名所必需
@@ -59,6 +58,8 @@ jobs:
           egress-policy: audit
 
       # 1. 检出代码
+      # 触发 ref 是 tag 时，checkout 默认检出的是该 tag 指向的提交；
+      # fetch-depth: 0 还让下方能读到完整 tag 列表，从而算出「上一个版本」。
       - name: 检出代码
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -94,12 +95,23 @@ jobs:
           echo "plugin_name=$PLUGIN_NAME" >> $GITHUB_OUTPUT
           # ---- 发布决策 ----
           # 判据只有两个：本次是不是手动触发、以及有没有勾选试运行。
-          # push 触发时 inputs 为空 → IS_MANUAL=false，走「tag 已存在就跳过」的老行为；
+          # tag 触发时 inputs 为空 → IS_MANUAL=false；此时触发 ref 就是 tag 本身，
+          # 只需核对它与 metadata.yaml 的版本号一致即可发布。
           # 手动触发（workflow_dispatch）→ IS_MANUAL=true，tag 已存在也照样重新发布。
           IN_DRY_RUN="${{ inputs.dry_run }}"
           IN_DRY_RUN="${IN_DRY_RUN:-false}"
           IS_MANUAL="${{ github.event_name == 'workflow_dispatch' }}"
           IS_MANUAL="${IS_MANUAL:-false}"
+
+          # tag 触发时，触发用的 tag 必须就是 metadata.yaml 里声明的版本。
+          # 两者不一致（如推了 v1.2.0 但 metadata.yaml 还是 1.1.0）说明发布源被弄脏了：
+          # 继续跑会用错版本号发 Release，还会覆盖掉别人的版本，所以直接判红。
+          if [ "$IS_MANUAL" != "true" ]; then
+            if [ "${{ github.ref_name }}" != "v${VERSION}" ]; then
+              echo "::error::触发 tag (${{ github.ref_name }}) 与 metadata.yaml 版本 (v${VERSION}) 不一致，拒绝发布"
+              exit 1
+            fi
+          fi
 
           # 判断该版本 tag 是否已存在：手工触发时要据此提示「这是一次重新发布」
           if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
@@ -111,7 +123,8 @@ jobs:
           # publish：是否真的走到「发 Release」这一步。
           #   - dry_run 优先级最高：只构建打包，绝不建 tag / 不发布 / 不生成签名证据；
           #   - 手动触发：无条件发布（tag 已存在 = 重新发布，不存在 = 首次发布）；
-          #   - push 触发：tag 已存在则跳过，避免覆盖既有 Release。
+          #   - tag 触发：发布。触发源就是 tag，版本号在上一步已核对一致；
+          #     tag 必然「已存在」，因为发布的是这个 tag 指向的提交，不是再造一个 tag。
           if [ "$IN_DRY_RUN" = "true" ]; then
             PUBLISH=false
             echo "::notice::试运行模式（dry_run）：仅构建打包，不建 tag、不发 Release"
@@ -122,11 +135,9 @@ jobs:
             else
               echo "::notice::手动触发：tag v${VERSION} 尚不存在，本次为首次发布"
             fi
-          elif [ "$TAG_EXISTS" = "true" ]; then
-            PUBLISH=false
-            echo "::notice::tag v${VERSION} 已存在，跳过发布；如需重发请手动触发本工作流"
           else
             PUBLISH=true
+            echo "::notice::tag 触发：发布 v${VERSION}（触发 tag ${{ github.ref_name }}）"
           fi
 
           echo "tag_exists=$TAG_EXISTS" >> "$GITHUB_OUTPUT"
@@ -232,11 +243,16 @@ jobs:
         id: release_notes
         if: steps.get_info.outputs.publish == 'true'
         run: |
-          # 从上一个版本标签生成发布说明：只认 vX.Y.Z 家族的 tag，
-          # 否则 CI / 维护类的无关 tag 会被误当作上一版本，导致首次发布说明被抑制或漏掉提交
-          PREVIOUS_TAG=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --merged HEAD^ --sort=-v:refname 2>/dev/null | head -n 1 || echo "")
-          echo "上一个版本标签: ${PREVIOUS_TAG:-<无>}"
           VERSION=${{ steps.get_info.outputs.version }}
+          # 从上一个版本标签生成发布说明：只认 vX.Y.Z 家族的 tag，
+          # 否则 CI / 维护类的无关 tag 会被误当作上一版本，导致首次发布说明被抑制或漏掉提交。
+          # 用 --merged HEAD 而非 HEAD^：tag 触发时 HEAD 就是该 tag 指向的提交，
+          # 取 HEAD^ 会把「刚刚推上去的这个 tag」自己算成上一个版本 —— 只有它一个 tag 时
+          # 变更范围就成了空区间，首次发布说明会显示「无更新内容」。
+          # 同时显式排除当前版本，双重保险。
+          PREVIOUS_TAG=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --merged HEAD --sort=-v:refname 2>/dev/null \
+            | grep -vx "v${VERSION}" | head -n 1 || echo "")
+          echo "上一个版本标签: ${PREVIOUS_TAG:-<无>}"
 
           # 定义生成更新日志的函数
           generate_changelog_from_git() {
@@ -389,8 +405,8 @@ jobs:
       #   3) 签名产物是 cosign v3 的 .sigstore.json 单文件，.sig + .crt 双文件形态已废弃；
       #   4) 签名默认开启，信任根是 job 的 id-token: write（job 级 permissions 会
       #      覆盖顶层声明，所以它必须写在本 job 上）；
-      #   5) identity 留空时按本次触发 ref 自动拼，这里**不写死** @refs/heads/main ——
-      #      写死会在 tag 触发的场景判 2「签名身份不是我以为的那个」。
+      #   5) identity 留空时按本次触发 ref 自动拼，这里**不写死**成任何 ref ——
+      #      本工作流的触发 ref 就是 vX.Y.Z tag，写死分支名会判 2「签名身份不是我以为的那个」。
       - name: 生成证据包
         id: evidence
         if: steps.get_info.outputs.publish == 'true'
@@ -530,7 +546,7 @@ jobs:
 
       # 10. 创建 GitHub Release
       # 是否真的走到这里已由前面的 publish 闸门决定：
-      #   - push 触发 + tag 不存在 → 新建 Release（常规路径）；
+      #   - tag 触发 → 发布该 tag（常规路径）；tag 由 git push 产生，版本号已核对一致；
       #   - 手动触发 → 无条件发布；tag 已存在即「重新发布」，覆盖同名 Release 的正文与同名资产
       #     （action-gh-release 对已存在 Release 是 update 语义，同名文件按名替换，
       #     不会堆出重复资产；但被删掉的旧资产不会自动清理，需要人工核实）。
@@ -557,13 +573,13 @@ jobs:
             证据包 sha256：`${{ steps.evidence.outputs.bundle-sha256 }}`
 
             签名身份（identity）由 Action 按 `github.workflow_ref` 现拼，形如
-            `https://github.com/<owner>/<repo>/.github/workflows/release.yml@refs/heads/main`，
-            即「仓库 + 工作流文件 + 触发 ref」三者都定死。验签时按它核对：
+            `https://github.com/<owner>/<repo>/.github/workflows/release.yml@${{ github.ref }}`，
+            即「仓库 + 工作流文件 + 触发 tag」三者都定死。验签时按它核对：
 
             ```bash
             cosign verify-blob \
               --bundle evidence-*.tar.gz.sigstore.json \
-              --certificate-identity 'https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/heads/main' \
+              --certificate-identity 'https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}' \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
               evidence-*.tar.gz
             ```
@@ -571,8 +587,8 @@ jobs:
             注意：这里用的是 `--certificate-identity`（全等匹配），**不要**退化成
             `--certificate-identity-regexp 'https://github.com/${{ github.repository }}/'`。
             那条正则只锚到仓库前缀就收尾，同一仓库下**别的**工作流、**别的** ref
-            签出来的包也会被判通过 —— 而本工作流只在 `main` 上发布（job 级
-            `if: github.ref == 'refs/heads/main'`），身份只可能是这一个。
+            签出来的包也会被判通过 —— 而本工作流只在 tag 上发布（job 级
+            `if: startsWith(github.ref, 'refs/tags/v')`），身份只可能是这一个。
 
             ### 透明日志（Rekor）
 
@@ -590,8 +606,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # 只有「手动触发 + tag 已存在」才是重新发布。tag 触发时 tag 必然存在
+      # （它就是触发源），在这里报警只会制造噪音。
       - name: 提示重新发布
-        if: steps.get_info.outputs.publish == 'true' && steps.get_info.outputs.tag_exists == 'true'
+        if: steps.get_info.outputs.publish == 'true' && steps.get_info.outputs.manual == 'true' && steps.get_info.outputs.tag_exists == 'true'
         run: |
           echo "::warning::本次为重新发布：tag ${{ steps.get_info.outputs.tag_name }} 已存在，Release 正文与同名资产已被覆盖，请人工核对是否残留旧资产"
 
@@ -601,5 +619,5 @@ jobs:
           if [ "${{ steps.get_info.outputs.dry_run }}" = "true" ]; then
             echo "::notice::试运行完成：zip 已生成但未发布。正式发布请取消勾选 dry_run"
           else
-            echo "::notice::tag ${{ steps.get_info.outputs.tag_name }} 已存在，跳过本次 Release；如需重新发布请手动触发本工作流（或将 metadata.yaml 的 version 提升后再推送）"
+            echo "::notice::本次未发布；如需发布请推送 metadata.yaml 中对应版本的 tag（或手动触发本工作流）"
           fi
