@@ -1,0 +1,55 @@
+# 此工作流使用的操作未获得 GitHub 认证。
+# 它们由第三方提供，并受单独的服务条款、隐私政策和支持文档约束。
+
+name: 'Python 依赖审计'
+
+on:
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '0 0 * * 0'
+  # 支持手动触发，便于排障与补跑
+  workflow_dispatch:
+
+# 最小权限：pip-audit 只读取仓库与依赖清单，不上传 SARIF、也不调用云身份，
+# 故**不授予** security-events: write / id-token: write，避免第三方 Action
+# 取得不必要的写能力与 OIDC 令牌。
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        # 逐版本审计，确保每个版本上的依赖解析与漏洞结论都被覆盖。
+        # 矩阵与单测矩阵（coverage.yml）保持一致：3.10/3.12/3.13。
+        # 本仓库 requirements.txt 只有 aiohttp>=3.9.0 / httpx>=0.27.0 两条下限约束，
+        # 不要求高版本解释器，故矩阵从插件实际运行的 AstrBot 环境（3.10）起算。
+        python-version: ['3.10', '3.12', '3.13']
+    runs-on: ${{ matrix.os }}
+    name: 审计在 ${{ matrix.os }} 上使用 Python ${{ matrix.python-version }}
+
+    steps:
+      - name: 加固运行器（审计所有出站调用）
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+      - name: 检出仓库
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: 设置 Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # 不在此处 pip install -r requirements.txt：pip-audit 已直接对清单做
+      # 依赖解析与漏洞比对，额外安装只会执行 PR 可修改的依赖脚本，
+      # 无谓扩大不可信代码执行面且属重复工作。
+      - name: 运行 pip-audit
+        uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266 # v1.1.0
+        with:
+          inputs: requirements.txt
+          vulnerability-service: OSV
+          summary: true

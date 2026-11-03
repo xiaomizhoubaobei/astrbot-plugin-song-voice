@@ -1,0 +1,46 @@
+# 此工作流检出代码并扫描上次提交中更改或添加的内容，
+# 查找冒犯性/排他性术语。
+# 扫描将提供关于发现的术语和可以使用的替代术语的上下文。
+name: 包容性分析扫描
+
+# 不设 paths 过滤：排他性术语同样可能出现在 README、文档与工作流中，
+# 只扫 Python 文件会漏检，故对所有变更全量扫描。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 声明最小权限（仅只读）。本工作流无 OIDC 消费者，不授予 id-token: write。
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  Inclusiveness-Analyser-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 加固运行器（审计所有出站调用）
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      # excludeUnchangedFiles: true 时，Action 需要知道「本次提交改了哪些文件」，
+      # 而它的算路依赖能取到**当前提交的父提交**（HEAD^）做 diff。
+      # 默认 checkout 只取 1 层（depth=1）时，HEAD 是个**没有父提交的嫁接提交**：
+      # 此时 `git show --diff-filter=AM` 不会报错，而是把**全部文件**都当成新增文件
+      # 列出——结果就是「只扫变更」退化成「扫全仓」，既慢又不符合本步意图。
+      # 故显式取 2 层历史，保证 diff 有真实的父提交可比。
+      - name: 检出代码
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+
+      # 上游最新发布即 v1.0.1（2022-11-02，commit 994519a4），之后无 release，
+      # 故此处钉定 SHA 已是上游最新发布版，无需再升级；升级时同步更新注释里的版本号。
+      - name: 包容性分析器
+        uses: microsoft/InclusivenessAnalyzer@994519a4cd1f0ccc7415fff13b7f287344c420bc # v1.0.1
+        with:
+          # 仅告警不阻断流水线：包容性术语属提示性建议，不应把 main 上的提交判死。
+          failOnNonInclusiveTerm: false
+          # 只扫本次提交新增/修改的文件，保持轻量（依赖上面的 fetch-depth: 2）。
+          excludeUnchangedFiles: true

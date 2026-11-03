@@ -1,0 +1,75 @@
+# 此工作流使用的操作未获得 GitHub 认证。
+# 它们由第三方提供，并受单独的服务条款、隐私政策和支持文档约束。
+
+name: 'DevSkim 多环境分析'
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - '**/*.py'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - '**/*.py'
+  # 支持手动触发，便于排障与补跑
+  workflow_dispatch:
+
+# 最小权限：顶层只读，写能力下沉到 job 级。
+# 本工作流无 OIDC 联邦 / 云身份需求，**不授予** id-token: write——
+# 否则一旦某个 action 被替换，攻击者可凭空铸造云身份令牌（多余武器）。
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  scan:
+    strategy:
+      # DevSkim 做的是**正则 + 规则集**的源码级扫描，与解释器版本无关；
+      # 多版本矩阵只会把同一份扫描重复跑 N 次、各自上传一遍 SARIF，徒增 CI 成本。
+      # 故收敛为单一运行器 + 单一版本（与 CodeQL.yml 口径一致）。
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ['3.12']
+    runs-on: ${{ matrix.os }}
+    name: DevSkim 扫描在 ${{ matrix.os }} 上使用 Python ${{ matrix.python-version }}
+    permissions:
+      actions: read
+      contents: read
+      # 仅上传 SARIF 结果需要 security-events: write
+      security-events: write
+
+    steps:
+      - name: 加固运行器（审计所有出站调用）
+        # 观察模式：egress-policy 保持 audit，仅记录出网调用、不阻断构建。
+        # 本工作流会 pip install requirements.txt，出站域名随依赖变化而波动，
+        # 阻断模式下的白名单极易因依赖新增而漏项，故回退为观察模式，
+        # 与仓库内其余工作流口径统一（egress-policy: audit）。
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+      - name: 检出仓库
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: 设置 Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # 不装 requirements.txt：DevSkim 只读源码，装依赖既无用、又会执行
+      # 一份 PR 可修改的依赖清单（供应链面），徒增风险。
+
+      - name: 运行 DevSkim 扫描器
+        uses: microsoft/DevSkim-Action@4b5047945a44163b94642a1cecc0d93a3f428cc6 # v1.0.16
+
+      - name: 上传 DevSkim 扫描结果到 GitHub 安全标签
+        # 扫描失败也要上传：报告本身就是排障证据，不能因非零码丢掉。
+        # ⚠️ 但**必须同时确认文件存在**：扫描若在写文件前就失败（或写一半被取消），
+        #   devskim-results.sarif 根本不存在，`always()` 会带着一个缺失路径去 upload-sarif，
+        #   报出「找不到文件」这种**误导性错误**，把真正的失败原因盖住；更糟的是
+        #   若上一次残留了同名文件，还会把过期结果当成这次的覆盖上传。
+        #   用 hashFiles 做存在性判定，无文件就干净跳过。
+        if: always() && hashFiles('devskim-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: devskim-results.sarif

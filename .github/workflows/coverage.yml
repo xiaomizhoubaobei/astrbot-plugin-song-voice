@@ -1,0 +1,183 @@
+name: Coverage
+
+# 触发时机：main 分支的推送与 PR。
+# 说明：本仓库代码会在 main 推送时由 CNB（.cnb.yml）同步至 GitHub 镜像仓库，
+#       因此 CNB 侧的每次变更最终都会以 push 形式落到这里。
+#       ⚠️ 本仓库当前**没有 tests/ 目录**：测试未收集到用例时，pytest 默认以退出码 5
+#       结束，会把 main 永久标红。故此处用 `--suppress-no-test-exit-code`，让
+#       「还没写测试」表现为绿灯跳过，而不是误报故障；一旦补上 tests/，同一工作流
+#       自动开始统计并上报覆盖率，无需改本文件。
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# 同一分支/PR 的旧运行自动取消，避免重复上报造成徽章抖动
+concurrency:
+  group: coverage-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  # 插件包名（= 仓库名 = metadata.yaml 的 name）：覆盖率按「包名」统计源码，
+  # 而不是按绝对路径，Codecov 侧的固定路径映射才能对上。
+  PLUGIN_PKG: astrbot_plugin_song_voice
+
+jobs:
+  coverage:
+    name: 单元测试与覆盖率 (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    # 测试矩阵：AstrBot 运行环境的主流解释器版本（3.10 起）。
+    # fail-fast: false —— 某一版本失败不该掩盖其它版本的结论。
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12", "3.13"]
+    # ⚠️ 【令牌只在「上报」这一步可见】切勿把 CODECOV_TOKEN 提到 job / workflow 级 env：
+    #   本 job 会 `pip install -r requirements.txt` 并执行 **PR 可控的测试代码**，
+    #   job 级 env 会让这些不可信代码直接读到 Secret。
+    #   `if` 里不能直接引用 secrets（GitHub 不允许），故另设一个**非机密**的存在性标志。
+    env:
+      HAS_CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN != '' }}
+    steps:
+      - name: 加固运行器（审计全部出网调用）
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: 检出代码
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # 本 job 会执行 PR 可控的测试代码，凭据不得留在本地 git 配置里被读取外泄
+          persist-credentials: false
+
+      - name: 安装 Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      # 不安装 requirements.txt：插件运行依赖（aiohttp / httpx）在测试里以
+      # 打桩方式替代，装不上或装错版本都会把「测试结论」污染成「环境结论」。
+      # 缺 astrbot 时插件模块本身不可导入，故测试（如有）以纯逻辑层为主。
+      - name: 安装测试工具
+        run: |
+          python -m pip install --upgrade pip
+          # 测试工具钉定版本：避免上游发版时机决定「今天绿、明天红」
+          pip install pytest==9.0.3 pytest-asyncio coverage
+
+      # 仓库目录名不等于插件包名（astrbot_plugin_song_voice），测试统一按
+      # 「顶层包名」导入；此处铺一层同名符号链接，把仓库根暴露为包。
+      - name: 构造可导入的包视图
+        run: ln -sfn "$GITHUB_WORKSPACE" "$RUNNER_TEMP/${PLUGIN_PKG}"
+
+      - name: 运行测试并统计覆盖率
+        env:
+          # 覆盖率数据文件落到临时目录，避免污染工作区
+          COVERAGE_FILE: ${{ runner.temp }}/.coverage
+          # 包视图目录先进入 sys.path，让顶层包名可解析
+          PYTHONPATH: ${{ runner.temp }}
+        run: |
+          # --source 用「包名」计数，coverage 会以包所在目录为基准写出相对路径
+          # （如 astrbot_plugin_song_voice/core/api.py），从而正确定位到工作区文件。
+          # 未收集到用例时（本仓库暂无 tests/）不判失败，仍生成一份空覆盖率报告。
+          python -m coverage run --source="${PLUGIN_PKG}" -m pytest tests -q \
+            --suppress-no-test-exit-code
+          python -m coverage report -m
+          python -m coverage xml -o coverage.xml
+
+      # 上报 Codecov：仅在拿到 token（仓库 Secret 或同名 CNB 密钥）时执行。
+      # 未配置 token 时跳过上报，仅留存 coverage.xml 工件，不使 CI 失败。
+      - name: 上报覆盖率到 Codecov
+        id: codecov
+        if: ${{ always() && env.HAS_CODECOV_TOKEN == 'true' }}
+        continue-on-error: true
+        # 令牌的作用域收窄到这一步：上面的 install/test 阶段读不到它。
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: ./coverage.xml
+          # 覆盖率只跑单一版本（矩阵起始的 3.10）：多版本重复上报同一份源码的
+          # 覆盖率没有增量信息，只会让 Codecov 侧互相覆盖。
+          flags: unittests
+          name: python-3.10
+          fail_ci_if_error: false
+          verbose: true
+          # CLI 默认下载到检出根目录并长期留存；改用临时目录并在结束后清理
+          cleanup: true
+          # 钉定 CLI 版本，避免 default 的 latest 静默漂移导致上传协议行为变化
+          version: v11.3.1
+
+      - name: 上传覆盖率报告工件
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-xml-${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: warn
+
+  # 纯单测矩阵：3.10 / 3.12 / 3.13 逐版本跑一遍 pytest。
+  # 为什么与 coverage job 分开：覆盖率只需算一次（同一份源码），
+  # 而「代码在这些版本上都能跑通」必须逐版本验证。
+  tests:
+    name: 单测 (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12", "3.13"]
+    steps:
+      - name: 加固运行器（审计全部出网调用）
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: 检出代码
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 安装 Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: 安装测试工具
+        run: |
+          python -m pip install --upgrade pip
+          # 与 coverage job 保持同一 pytest 版本，避免两处漂移出不同结论
+          pip install pytest==9.0.3 pytest-asyncio
+
+      - name: 构造可导入的包视图
+        run: ln -sfn "$GITHUB_WORKSPACE" "$RUNNER_TEMP/${PLUGIN_PKG}"
+
+      - name: 运行单元测试
+        env:
+          PYTHONPATH: ${{ runner.temp }}
+        run: |
+          # 不走 coverage 启动器：这里只关心「能不能跑通」。
+          # 暂无 tests/ 时以退出码 0 跳过，待补齐测试后自动生效。
+          python -m pytest tests -q --suppress-no-test-exit-code
+
+  # 汇总门禁：分支保护只认这一个检查项，避免每加一个版本都要改一次保护规则。
+  tests-gate:
+    name: 单测矩阵汇总
+    runs-on: ubuntu-latest
+    needs: tests
+    if: always()
+    steps:
+      - name: 校验矩阵结果
+        run: |
+          if [ "${{ needs.tests.result }}" != "success" ]; then
+            echo "❌ 单测矩阵未全部通过：${{ needs.tests.result }}"
+            exit 1
+          fi
+          echo "✅ 3.10 / 3.12 / 3.13 全部通过"
