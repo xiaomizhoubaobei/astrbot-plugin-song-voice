@@ -26,11 +26,12 @@ repos:
   hooks:
   - id: flake8
     args: ['--max-line-length=100', '--extend-ignore=E203,W503']
-# isort 10.x 要求 Python >= 3.11，CI 默认解释器是 3.10，故钉在 9.x（与 10.x 输出一致）
 - repo: https://github.com/pycqa/isort
-  rev: 9.0.2
+  rev: 10.0.0b1
   hooks:
   - id: isort
+    # isort 10+ 要求 Python >= 3.11；显式钉到 3.12，避免 CI 默认解释器（3.10）装不上该钩子
+    language_version: python3.12
     args: ['--profile', 'black']
 - repo: https://github.com/pre-commit/mirrors-mypy
   rev: v2.4.0
