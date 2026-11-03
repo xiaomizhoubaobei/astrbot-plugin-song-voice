@@ -53,8 +53,22 @@ core/api.py          GD 音乐台 API 请求
 core/models.py       搜索结果归一化
 core/audio.py        ffmpeg 转码
 core/session.py      会话状态、歌单渲染
+tests/               单元测试（pytest，离线可跑）
 install_gpg_keys.sh  可选：GPG 签名环境一键安装
 ```
+
+## 测试
+
+```bash
+pip install pytest coverage
+python -m pytest tests -q
+```
+
+测试不装 `requirements.txt`，也不出网：`astrbot` / `httpx` 缺失时由
+`tests/conftest.py` 注入最小 stub，网络与 ffmpeg 调用一律打桩。
+仓库根目录会被登记为顶层包 `astrbot_plugin_song_voice`，与 CI 覆盖率口径一致。
+
+CI（`.github/workflows/coverage.yml`）在 Python 3.13 / 3.14 / 3.15 上跑同一套用例。
 
 ## GPG 签名环境（可选）
 

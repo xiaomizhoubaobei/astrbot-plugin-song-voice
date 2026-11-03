@@ -6,3 +6,10 @@ node_modules/
 dist/
 *.log
 record/
+
+# 测试产物
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/

@@ -16,6 +16,16 @@ pre-commit run --all-files
 钩子包含 black / isort / flake8 / mypy / pydocstyle 与若干文件卫生检查，
 全部通过再提 PR。
 
+## 测试
+
+```bash
+python -m pytest tests -q
+```
+
+新增逻辑请同时补 `tests/` 下的用例。测试必须**离线可跑**：
+不依赖 `astrbot` / `httpx`（缺失时 conftest 注入 stub），不发起真实网络请求，
+不调用真实 `ffmpeg`。
+
 ## 代码约定
 
 - 面向 Python 3.13+，不使用高版本专属语法。
